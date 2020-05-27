@@ -51,6 +51,10 @@ static void kidhandler(int signum) {
 	waitpid(WAIT_ANY, NULL, WNOHANG);
 }
 
+bool bloom()
+{
+	return false;
+}
 
 int main(int argc,  char *argv[])
 {
