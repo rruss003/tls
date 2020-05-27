@@ -40,6 +40,30 @@ static void usage()
 	exit(1);
 }
 
+int hash(char* str, int strlen)
+{
+	return 0;
+}
+
+int hrw(char* obj, int objlen)
+{
+	int num_proxies = 0;
+	int max_hash = 0;
+	int result_proxy = 0;
+	for(int i=0; i<num_proxies; i++)
+	{
+		// concatenate the object name with the proxy name
+
+		int h = hash(obj, objlen);
+		if(h>max_hash)
+		{
+			max_hash=h;
+			result_proxy = i;
+		}
+	}
+	return result_proxy;
+}
+
 int main(int argc, char *argv[])
 {
 	struct sockaddr_in server_sa;
