@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "../../extern/libressl_install/include/tls.h"
 
 
 
@@ -42,6 +43,8 @@ static void usage()
 
 int main(int argc, char *argv[])
 {
+	struct tls_config *cfg = NULL;
+	struct tls *ctx = NULL;
 	struct sockaddr_in server_sa;
 	char buffer[80], *ep;
 	size_t maxread;
@@ -81,6 +84,37 @@ int main(int argc, char *argv[])
 		usage();
 	}
 
+	//initialize libtls
+	if(tls_init() != 0){
+		err(1,"tls_init");
+	}
+
+	//configure libtls
+	if((cfg = tls_config_new()) == NULL){
+		err(1,"tls_config_new");
+	}
+
+	//set root certificate
+	if(tls_config_set_ca_file(cfg, "root.pem") != 0){
+		err(1,"tls_config_set_ca_file");
+	}
+
+	//initialize client context
+	ctx = tls_client();
+	if((ctx == NULL)){
+		err(1,"tls_client");
+	}
+
+	//apply config to context
+	if(tls_configure(ctx,cfg) != 0){
+		err(1,"tls_configure: %s", tls_error(ctx));
+	}
+
+	//conne to server directly 
+	if(tls_connect(ctx,"localhost","port") != 0){
+		err(1,"tls_connect: %s", tls_error(ctx));
+	}
+
 	/* ok now get a socket. we don't care where... */
 	if ((sd=socket(AF_INET,SOCK_STREAM,0)) == -1)
 		err(1, "socket failed");
@@ -89,7 +123,6 @@ int main(int argc, char *argv[])
 	if (connect(sd, (struct sockaddr *)&server_sa, sizeof(server_sa))
 	    == -1)
 		err(1, "connect failed");
-
 	/*
 	 * finally, we are connected. find out what magnificent wisdom
 	 * our server is going to send to us - since we really don't know
