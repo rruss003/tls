@@ -30,18 +30,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
+#include <tls.h>
 
 
 static void usage()
 {
 	extern char * __progname;
-	fprintf(stderr, "usage: %s ipaddress portnumber\n", __progname);
+	fprintf(stderr, "usage: %s -port proxyportnumber filename\n", __progname);
 	exit(1);
 }
 
 int main(int argc, char *argv[])
 {
+	char* IPADDR="127.0.0.1";
 	struct sockaddr_in server_sa;
 	char buffer[80], *ep;
 	size_t maxread;
@@ -50,19 +51,20 @@ int main(int argc, char *argv[])
 	u_long p;
 	int sd;
 
-	if (argc != 3)
+	if (argc != 4)
 		usage();
 
-        p = strtoul(argv[2], &ep, 10);
-        if (*argv[2] == '\0' || *ep != '\0') {
+    p = strtoul(argv[2], &ep, 10);
+	if (*argv[2] == '\0' || *ep != '\0')
+	{
 		/* parameter wasn't a number, or was empty */
 		fprintf(stderr, "%s - not a number\n", argv[2]);
 		usage();
 	}
-        if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX)) {
+	if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX)) {
 		/* It's a number, but it either can't fit in an unsigned
-		 * long, or is too big for an unsigned short
-		 */
+		* long, or is too big for an unsigned short
+		*/
 		fprintf(stderr, "%s - value out of range\n", argv[2]);
 		usage();
 	}
@@ -75,11 +77,17 @@ int main(int argc, char *argv[])
 	memset(&server_sa, 0, sizeof(server_sa));
 	server_sa.sin_family = AF_INET;
 	server_sa.sin_port = htons(port);
-	server_sa.sin_addr.s_addr = inet_addr(argv[1]);
+	server_sa.sin_addr.s_addr = inet_addr(IPADDR);
 	if (server_sa.sin_addr.s_addr == INADDR_NONE) {
-		fprintf(stderr, "Invalid IP address %s\n", argv[1]);
+		fprintf(stderr, "Invalid IP address %s\n", IPADDR);
 		usage();
 	}
+	struct tls *ctx
+	if ((ctx = tls_client()) == NULL)
+        err(1, "failed to create client");
+	if (tls_configure(ctx, NULL) == -1)
+        err(1, "failed to configure: %s", tls_error(ctx));
+
 
 	/* ok now get a socket. we don't care where... */
 	if ((sd=socket(AF_INET,SOCK_STREAM,0)) == -1)
