@@ -12,25 +12,19 @@
 * we also make sure we handle EINTR in case we got interrupted
 * by a signal.
 */
-void readloop(char* buffer, struct tls* tls_cctx)
+void readloop(char* buffer, struct tls* tls_ctx, ssize_t bufsize)
 {
 	ssize_t r = -1;
 	ssize_t rc = 0;
-	ssize_t maxread = sizeof(buffer) - 1; /* leave room for a 0 byte */
-	while ((r != 0) && rc < maxread) {
-		r = tls_read(tls_cctx, buffer + rc, maxread - rc);
+	while ((r != 0) && rc < bufsize) {
+		r = tls_read(tls_ctx, buffer + rc, bufsize - rc);
 		if (r == TLS_WANT_POLLIN || r == TLS_WANT_POLLOUT)
 			continue;
-		if (r < 0) {
-			errx(1, "tls_read failed (%s)", tls_error(tls_cctx));
-		} else
+		if (r < 0)
+			errx(1, "tls_read failed (%s)", tls_error(tls_ctx));
+		else
 			rc += r;
 	}
-	/*
-	 * we must make absolutely sure buffer has a terminating 0 byte
-	 * if we are to use it as a C string
-	 */
-	buffer[rc] = '\0';
 }
 
 /*
@@ -38,13 +32,13 @@ void readloop(char* buffer, struct tls* tls_cctx)
 * handle a short write, or being interrupted by
 * a signal before we could write anything.
 */
-void writeloop(char* buffer, struct tls* tls_cctx)
+void writeloop(char* buffer, struct tls* tls_cctx, ssize_t bufsize)
 {
-	ssize_t written = 0;
     ssize_t w = 0;
-    while (written < strlen(buffer)) {
+	ssize_t written = 0;
+    while (written < bufsize) {
         w = tls_write(tls_cctx, buffer + written,
-            strlen(buffer) - written);
+            bufsize - written);
         if (w == TLS_WANT_POLLIN || w == TLS_WANT_POLLOUT)
             continue;
         if (w < 0)
@@ -52,8 +46,4 @@ void writeloop(char* buffer, struct tls* tls_cctx)
         else
             written += w;
     }
-    ssize_t i = 0;
-    do {
-        i = tls_close(tls_cctx);
-    } while(i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
 }

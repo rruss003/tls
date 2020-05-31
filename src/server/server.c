@@ -41,6 +41,8 @@
 #include <tls.h>
 #include "../rw.h"
 
+#define MAXBUFLEN 103000
+
 static void usage()
 {
 	extern char * __progname;
@@ -57,7 +59,7 @@ static void kidhandler(int signum) {
 int main(int argc,  char *argv[])
 {
 	struct sockaddr_in sockname, client;
-	char buffer[80], *ep;
+	char *ep;
 	struct sigaction sa;
 	int sd, i;
 	socklen_t clientlen;
@@ -109,11 +111,6 @@ int main(int argc,  char *argv[])
 	
 	if (tls_configure(tls_ctx, tls_cfg) == -1)
 		errx(1, "tls configuration failed (%s)", tls_error(tls_ctx));
-
-	/* the message we send the client */
-	strlcpy(buffer,
-	    "What is the air speed velocity of a coconut laden swallow?\n",
-	    sizeof(buffer));
 
 	memset(&sockname, 0, sizeof(sockname));
 	sockname.sin_family = AF_INET;
@@ -173,7 +170,6 @@ int main(int argc,  char *argv[])
 
 		if(pid == 0) {
 			i = 0;
-			ssize_t written, w;
 			if (tls_accept_socket(tls_ctx, &tls_cctx, clientsd) == -1)
 				errx(1, "tls accept failed (%s)", tls_error(tls_ctx));
 			else {
@@ -184,7 +180,29 @@ int main(int argc,  char *argv[])
 				} while(i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
 			}
 
-			writeloop(buffer, tls_cctx);
+			char filename[80];
+			readloop(filename, tls_cctx, 80);
+
+			char buffer[MAXBUFLEN];
+			FILE *f = fopen(filename, "rb");
+			
+			if(f==NULL)
+				errx(1, "Invalid filename");
+			ssize_t filesize = fread(buffer, sizeof(char), MAXBUFLEN - 1, f);
+			if ( ferror( f ) != 0 )
+				errx(1, "Error reading file");
+
+			fclose(f);
+			printf("server fs: %ld\n", filesize);
+			// printf("BUFFER: %s\n", buffer);
+
+			writeloop((char*)&filesize, tls_cctx, sizeof(filesize));
+			writeloop(buffer, tls_cctx, filesize);
+
+			i = 0;
+			do {
+				i = tls_close(tls_cctx);
+			} while(i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
 
 			close(clientsd);
 			exit(0);

@@ -44,7 +44,7 @@ static void usage()
 int main(int argc, char *argv[])
 {
 	struct sockaddr_in server_sa;
-	char buffer[80], *ep;
+	char *ep;
 	u_short port;
 	u_long p;
 	int sd, i;
@@ -117,22 +117,24 @@ int main(int argc, char *argv[])
 			errx(1, "tls handshake failed (%s)",
 			    tls_error(tls_ctx));
 	} while (i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
+	char filename[80];
+	strncpy(filename, argv[3], 80);
+	writeloop(filename, tls_ctx, 80);
 
-	/*
-	 * finally, we are connected. find out what magnificent wisdom
-	 * our server is going to send to us - since we really don't know
-	 * how much data the server could send to us, we have decided
-	 * we'll stop reading when either our buffer is full, or when
-	 * we get an end of file condition from the read when we read
-	 * 0 bytes - which means that we pretty much assume the server
-	 * is going to send us an entire message, then close the connection
-	 * to us, so that we see an end-of-file condition on the read.
-	 *
-	 * we also make sure we handle EINTR in case we got interrupted
-	 * by a signal.
-	 */
-	readloop(buffer, tls_ctx);
-	printf("Server sent:  %s",buffer);
+	ssize_t filesize = 0;
+	readloop((char*)&filesize, tls_ctx, sizeof(filesize));
+	printf("%ld\n", filesize);
+
+	char *buffer = malloc(filesize);
+	readloop(buffer, tls_ctx, filesize);
+
+	FILE* file = fopen("./test", "wb");
+	if (file != NULL) {
+		fwrite(buffer, filesize, 1, file);
+	}
+
+	fclose(file);
+	free(buffer);
 	close(sd);
 	return(0);
 }
