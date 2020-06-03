@@ -41,8 +41,6 @@
 #include <tls.h>
 #include "../rw.h"
 
-#define MAXBUFLEN 103000
-
 static void usage()
 {
 	extern char * __progname;
@@ -50,31 +48,54 @@ static void usage()
 	exit(1);
 }
 
-static void kidhandler(int signum) {
-	/* signal handler for SIGCHLD */
-	waitpid(WAIT_ANY, NULL, WNOHANG);
-}
 
+void action(struct tls* tls_cctx)
+{
+	#define wl(a) writeloop((char*)&a, tls_cctx, sizeof(a))
+	printf("action called\n");
+	char filename[80];
+	readloop(filename, tls_cctx, 80);
+
+	FILE *f = fopen(filename, "rb");
+	char status = -1;
+	if(f==NULL)
+	{
+		wl(status);
+		errx(1, "Invalid filename");
+	}
+	fseek(f, 0, SEEK_END);
+	size_t filesize = ftell(f);
+	rewind(f);
+	char* buffer = malloc(filesize);
+	
+	fread(buffer, sizeof(char), filesize, f);
+	if ( ferror( f ) != 0 )
+	{
+		wl(status);
+		errx(1, "Error reading file");
+	}
+
+	fclose(f);
+	printf("server fs: %ld\n", filesize);
+	// printf("BUFFER: %s\n", buffer);
+	status = 0;
+	wl(status);
+	wl(filesize);
+	writeloop(buffer, tls_cctx, filesize);
+	
+	free(buffer);
+}
 
 int main(int argc,  char *argv[])
 {
-	struct sockaddr_in sockname, client;
 	char *ep;
-	struct sigaction sa;
-	int sd, i;
-	socklen_t clientlen;
 	u_short port;
-	pid_t pid;
 	u_long p;
-	struct tls_config *tls_cfg = NULL;
-	struct tls *tls_ctx = NULL;
-	struct tls *tls_cctx = NULL;
 
 	/*
 	 * first, figure out what port we will listen on - it should
 	 * be our first parameter.
 	 */
-
 	if (argc != 2)
 		usage();
 		errno = 0;
@@ -93,120 +114,5 @@ int main(int argc,  char *argv[])
 	}
 	/* now safe to do this */
 	port = p;
-
-	/* now set up TLS */
-
-	if ((tls_cfg = tls_config_new()) == NULL)
-		errx(1, "unable to allocate TLS config");
-	if (tls_config_set_ca_file(tls_cfg, "./certificates/root.pem") == -1)
-		errx(1, "unable to set root CA file");
-	if (tls_config_set_cert_file(tls_cfg, "./certificates/server.crt") == -1)
-		errx(1, "unable to set TLS certificate file");
-	if (tls_config_set_key_file(tls_cfg, "./certificates/server.key") == -1)
-		errx(1, "unable to set TLS key file");
-	if ((tls_ctx = tls_server()) == NULL)
-		errx(1, "tls server creation failed");
-
-	tls_config_verify_client_optional(tls_cfg);
-	
-	if (tls_configure(tls_ctx, tls_cfg) == -1)
-		errx(1, "tls configuration failed (%s)", tls_error(tls_ctx));
-
-	memset(&sockname, 0, sizeof(sockname));
-	sockname.sin_family = AF_INET;
-	sockname.sin_port = htons(port);
-	sockname.sin_addr.s_addr = htonl(INADDR_ANY);
-	sd=socket(AF_INET,SOCK_STREAM,0);
-	if ( sd == -1)
-		err(1, "socket failed");
-
-	if (bind(sd, (struct sockaddr *) &sockname, sizeof(sockname)) == -1)
-		err(1, "bind failed");
-
-	if (listen(sd,3) == -1)
-		err(1, "listen failed");
-
-	/*
-	 * we're now bound, and listening for connections on "sd" -
-	 * each call to "accept" will return us a descriptor talking to
-	 * a connected client
-	 */
-
-
-	/*
-	 * first, let's make sure we can have children without leaving
-	 * zombies around when they die - we can do this by catching
-	 * SIGCHLD.
-	 */
-	sa.sa_handler = kidhandler;
-        sigemptyset(&sa.sa_mask);
-	/*
-	 * we want to allow system calls like accept to be restarted if they
-	 * get interrupted by a SIGCHLD
-	 */
-        sa.sa_flags = SA_RESTART;
-        if (sigaction(SIGCHLD, &sa, NULL) == -1)
-                err(1, "sigaction failed");
-
-	/*
-	 * finally - the main loop.  accept connections and deal with 'em
-	 */
-	printf("Server up and listening for connections on port %u\n", port);
-	for(;;) {
-		int clientsd;
-		clientlen = sizeof(&client);
-		clientsd = accept(sd, (struct sockaddr *)&client, &clientlen);
-		if (clientsd == -1)
-			err(1, "accept failed");
-		/*
-		 * We fork child to deal with each connection, this way more
-		 * than one client can connect to us and get served at any one
-		 * time.
-		 */
-
-		pid = fork();
-		if (pid == -1)
-		     err(1, "fork failed");
-
-		if(pid == 0) {
-			i = 0;
-			if (tls_accept_socket(tls_ctx, &tls_cctx, clientsd) == -1)
-				errx(1, "tls accept failed (%s)", tls_error(tls_ctx));
-			else {
-				do {
-					if ((i = tls_handshake(tls_cctx)) == -1)
-						errx(1, "tls handshake failed (%s)",
-						    tls_error(tls_cctx));
-				} while(i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
-			}
-
-			char filename[80];
-			readloop(filename, tls_cctx, 80);
-
-			char buffer[MAXBUFLEN];
-			FILE *f = fopen(filename, "rb");
-			
-			if(f==NULL)
-				errx(1, "Invalid filename");
-			ssize_t filesize = fread(buffer, sizeof(char), MAXBUFLEN - 1, f);
-			if ( ferror( f ) != 0 )
-				errx(1, "Error reading file");
-
-			fclose(f);
-			printf("server fs: %ld\n", filesize);
-			// printf("BUFFER: %s\n", buffer);
-
-			writeloop((char*)&filesize, tls_cctx, sizeof(filesize));
-			writeloop(buffer, tls_cctx, filesize);
-
-			i = 0;
-			do {
-				i = tls_close(tls_cctx);
-			} while(i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
-
-			close(clientsd);
-			exit(0);
-		}
-		close(clientsd);
-	}
+	server_main(port, &action, "Server");
 }
