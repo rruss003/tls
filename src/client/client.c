@@ -30,14 +30,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "../../extern/libressl_install/include/tls.h"
+#include <tls.h>
+#include "../hash.h"
 
 
 
 static void usage()
 {
 	extern char * __progname;
-	fprintf(stderr, "usage: %s ipaddress portnumber\n", __progname);
+	fprintf(stderr, "usage: %s -port portnumber filename\n", __progname);
 	exit(1);
 }
 
@@ -52,10 +53,18 @@ int main(int argc, char *argv[])
 	u_short port;
 	u_long p;
 	int sd;
+	char *filename;
+	int filename_len;
+	unsigned char buf[BUFSIZ];
+	uint8_t *mem;
+	size_t mem_len;
+	ssize_t writelen;
 
-	if (argc != 3)
+	if (argc != 4)
 		usage();
-
+		if(strcmp(argv[1],"-port")){
+			usage();
+		}
         p = strtoul(argv[2], &ep, 10);
         if (*argv[2] == '\0' || *ep != '\0') {
 		/* parameter wasn't a number, or was empty */
@@ -70,7 +79,17 @@ int main(int argc, char *argv[])
 		usage();
 	}
 	/* now safe to do this */
-	port = p;
+	filename = argv[3];
+	filename_len = strlen(argv[3]);
+	strncpy(buf,filename,filename_len);
+
+	//use HRW hash to determine the right proxy server address
+
+	int chosen_port;
+	chosen_port = rendezvous_hashing(buf,strlen(buf));
+	printf("port chosen is %d\n",chosen_port);
+
+	port = chosen_port;
 
 	/*
 	 * first set up "server_sa" to be the location of the server
@@ -78,30 +97,39 @@ int main(int argc, char *argv[])
 	memset(&server_sa, 0, sizeof(server_sa));
 	server_sa.sin_family = AF_INET;
 	server_sa.sin_port = htons(port);
-	server_sa.sin_addr.s_addr = inet_addr(argv[1]);
+	server_sa.sin_addr.s_addr = inet_addr("127.0.0.1");
 	if (server_sa.sin_addr.s_addr == INADDR_NONE) {
-		fprintf(stderr, "Invalid IP address %s\n", argv[1]);
+		fprintf(stderr, "Invalid IP address %s\n", argv[2]);
 		usage();
 	}
 
 	//initialize libtls
 	if(tls_init() != 0){
-		err(1,"tls_init");
+		err(1,"tls_init:");
 	}
 
 	//configure libtls
 	if((cfg = tls_config_new()) == NULL){
-		err(1,"tls_config_new");
+		err(1,"tls_config_new:");
 	}
 
 	//set root certificate
-	if(tls_config_set_ca_file(cfg, "root.pem") != 0){
-		err(1,"tls_config_set_ca_file");
+	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0){
+		err(1,"tls_config_set_ca_file:");
+	}
+
+	//set client Certificates
+	if(tls_config_set_cert_file(cfg, "../certificates/client.crt") != 0){
+		err(1,"tls_config_set_cert_file:");
+	}
+
+	//set client certificates keys
+	if(tls_config_set_key_file(cfg, "../certificates/client.key") != 0){
+		err(1,"tls_config_set_key_file:");
 	}
 
 	//initialize client context
-	ctx = tls_client();
-	if((ctx == NULL)){
+	if((ctx = tls_client()) == NULL){
 		err(1,"tls_client");
 	}
 
@@ -109,51 +137,35 @@ int main(int argc, char *argv[])
 	if(tls_configure(ctx,cfg) != 0){
 		err(1,"tls_configure: %s", tls_error(ctx));
 	}
-
-	//conne to server directly 
-	if(tls_connect(ctx,"localhost","port") != 0){
-		err(1,"tls_connect: %s", tls_error(ctx));
-	}
-
 	/* ok now get a socket. we don't care where... */
 	if ((sd=socket(AF_INET,SOCK_STREAM,0)) == -1)
 		err(1, "socket failed");
 
-	/* connect the socket to the server described in "server_sa" */
-	if (connect(sd, (struct sockaddr *)&server_sa, sizeof(server_sa))
-	    == -1)
+	//connect the socket to the server described in "server_sa"
+	if (connect(sd, (struct sockaddr *)&server_sa, sizeof(server_sa)) == -1)
 		err(1, "connect failed");
-	/*
-	 * finally, we are connected. find out what magnificent wisdom
-	 * our server is going to send to us - since we really don't know
-	 * how much data the server could send to us, we have decided
-	 * we'll stop reading when either our buffer is full, or when
-	 * we get an end of file condition from the read when we read
-	 * 0 bytes - which means that we pretty much assume the server
-	 * is going to send us an entire message, then close the connection
-	 * to us, so that we see an end-of-file condition on the read.
-	 *
-	 * we also make sure we handle EINTR in case we got interrupted
-	 * by a signal.
-	 */
-	r = -1;
-	rc = 0;
-	maxread = sizeof(buffer) - 1; /* leave room for a 0 byte */
-	while ((r != 0) && rc < maxread) {
-		r = read(sd, buffer + rc, maxread - rc);
-		if (r == -1) {
-			if (errno != EINTR)
-				err(1, "read failed");
-		} else
-			rc += r;
+	
+	// // connect to the socket to the server
+	if(tls_connect_socket(ctx,sd,"localhost") != 0){
+		err(1,"tls_connect: %s", tls_error(ctx));
 	}
-	/*
-	 * we must make absolutely sure buffer has a terminating 0 byte
-	 * if we are to use it as a C string
-	 */
-	buffer[rc] = '\0';
 
-	printf("Server sent:  %s",buffer);
-	close(sd);
+	printf("successfully setup tls_connection to the server\n");
+
+	//send file name to server
+	if((writelen = tls_write(ctx,buf, strlen(buf))) < 0){
+		err(1,"tls_write: %s", tls_error(ctx));
+	}
+	//waiting for the reply and files from proxy & server
+	for(;;){
+		
+	}
+	//close the connection
+	if(tls_close(ctx) != 0){
+		err(1, "tls_close: %s", tls_error(ctx));
+	}
+	printf("connection closed\n");
+	tls_free(ctx);
+	tls_config_free(cfg);
 	return(0);
 }

@@ -1,1 +1,0 @@
-/usr/bin/cc -O3 -DNDEBUG   CMakeFiles/client.dir/src/client/client.c.o  -o build/client  extern/libressl/tls/libtls.a extern/libressl/ssl/libssl.a extern/libressl/crypto/libcrypto.a -lpthread -lrt 

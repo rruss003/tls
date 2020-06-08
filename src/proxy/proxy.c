@@ -1,29 +1,3 @@
-/*
- * Copyright (c) 2008 Bob Beck <beck@obtuse.com>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
-/* server.c  - the "classic" example of a socket server */
-
-/*
- * compile with gcc -o server server.c
- * or if you are on a crappy version of linux without strlcpy
- * thanks to the bozos who do glibc, do
- * gcc -c strlcpy.c
- * gcc -o server server.c strlcpy.o
- *
- */
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -39,6 +13,22 @@
 #include <string.h>
 #include <unistd.h>
 #include <tls.h>
+#include "../hash.h"
+
+struct proxy proxylist;
+
+// add a line to the proxylist file, since using a file is the simplest way to inform other proxies and client about current proxies in running 
+int writelisttofile(){
+	FILE *fp = NULL;
+	fp=fopen("../src/proxylist.txt", "a+"); 
+	if(fprintf(fp,"%d\t%s\t%s\n",proxylist.port,proxylist.addr,proxylist.name) == 0){
+		fclose(fp);
+		return 0;
+	}else{
+		fclose(fp);
+		return -1;
+	}
+}
 
 static void usage()
 {
@@ -52,12 +42,38 @@ static void kidhandler(int signum) {
 	waitpid(WAIT_ANY, NULL, WNOHANG);
 }
 
+// when we use Ctrl+C to terminate the proxy server
+void int_handler(int sig){
+	//delete the entry in proxylist.
+	char line[256];
+	char tmp[256];
+	FILE *fp=NULL;
+	FILE *fp_tmp=NULL;
+	fp=fopen("../src/proxylist.txt", "r");
+	fp_tmp=fopen("../src/temp.txt", "w+");
+	// check every line in the file, if the port(first string in every line) is not the port this proxy listening, copy it to a temporary file, and overwrite the original file at the end
+	while(fgets(line, sizeof(line), fp) != NULL){
+		strcpy(tmp, line);
+		char *result=strtok(line,"\t");
+		if(atoi(result) != proxylist.port){
+			fprintf(fp_tmp,"%s",tmp);
+		}
+	}
+	fclose(fp_tmp);
+	fclose(fp);
+	// remove the original file
+	remove("../src/proxylist.txt");
+	// overwirte by rename temporary file
+	rename("../src/temp.txt", "../src/proxylist.txt");
+	printf("\nready to quit\n");
+	exit(0);
+}
 
 int main(int argc,  char *argv[])
 {
 	struct sockaddr_in sockname, client;
 	struct tls_config *cfg = NULL;
-	struct tls *ctx = NULL, *cctx = NULL;
+	struct tls *proxy_ctx = NULL, *cctx = NULL;
 	char buffer[80], *ep;
 	struct sigaction sa;
 	int sd;
@@ -95,6 +111,8 @@ int main(int argc,  char *argv[])
 	}
 	/* now safe to do this */
 	port = p;
+	// intall INT signal handler
+	signal(SIGINT,int_handler);
 	// initialize libtls
 	if(tls_init()!=0){
 		err(1,"tls_init:");
@@ -107,31 +125,22 @@ int main(int argc,  char *argv[])
 	if(tls_config_set_ca_file(cfg,"../certificates/root.pem") != 0){
 		err(1,"tls_config_set_ca_file failed:");
 	}
-
-	//set server certificates
+	//set proxy certificates
 	if(tls_config_set_cert_file(cfg,"../certificates/server.crt") != 0){
 		err(1,"tls_config_set_cert_file failed:");
 	}
-	
-	//set server private keys
+	//set proxy private keys
 	if(tls_config_set_key_file(cfg,"../certificates/server.key") != 0){
 		err(1,"tls_configure_set_key_file failed:");
 	}
-	
-	//initialize server context
-	if((ctx = tls_server()) == NULL){
+	//initialize proxy context
+	if((proxy_ctx = tls_server()) == NULL){
 		err(1, "tls_server:");
 	}
-
 	//apply config to context
-	if(tls_configure(ctx,cfg) != 0){
-		err(1, "tls_configure: %s", tls_error(ctx));
+	if(tls_configure(proxy_ctx,cfg) != 0){
+		err(1, "tls_configure: %s", tls_error(proxy_ctx));
 	}
-
-	/* the message we send the client */
-	strlcpy(buffer,
-	    "What is the air speed velocity of a coconut laden swallow?\n",
-	    sizeof(buffer));
 	//setup the socket
 	printf("setting up socket!\n");
 	memset(&sockname, 0, sizeof(sockname));
@@ -169,7 +178,12 @@ int main(int argc,  char *argv[])
 	/*
 	 * finally - the main loop.  accept connections and deal with 'em
 	 */
-	printf("Server up and listening for connections on port %u\n", port);
+	printf("proxy up and listening for connections on port %u\n", port);
+	strcpy(proxylist.addr,"127.0.0.1");
+	proxylist.port = port;
+	strcpy(proxylist.name,"proxy");
+	writelisttofile();
+
 	for(;;) {
 		/*
 		 * We fork child to deal with each connection, this way more
@@ -183,8 +197,8 @@ int main(int argc,  char *argv[])
 		if (clientsd == -1)
 			err(1, "accept failed");
 		printf("successfully connected\n");
-		if(tls_accept_socket(ctx,&cctx,clientsd) != 0){
-			err(1, "tls_accept_socket failed: %s",tls_error(ctx));
+		if(tls_accept_socket(proxy_ctx,&cctx,clientsd) != 0){
+			err(1, "tls_accept_socket failed: %s",tls_error(proxy_ctx));
 		}
 		pid = fork();
 		if (pid == -1)
@@ -195,9 +209,14 @@ int main(int argc,  char *argv[])
 			//waiting for message from client
 			ssize_t readlen;
 			if((readlen = tls_read(cctx, buf, sizeof(buf))) < 0){
-				err(1, "tls_read:%s", tls_error(ctx));
+				err(1, "tls_read:%s", tls_error(proxy_ctx));
 			}
-			printf("requested file name: [%*.*s] \n", readlen, readlen, buf);
+			printf("requested file name: [%s] \n", buf);
+
+			//bloom filter use here
+
+
+
 			ssize_t written, w;
 			/*
 			 * write the message to the client, being sure to
