@@ -197,7 +197,7 @@ int main(int argc,  char *argv[])
 			if((readlen = tls_read(cctx, buf, sizeof(buf))) < 0){
 				err(1, "tls_read:%s", tls_error(ctx));
 			}
-			printf("requested file name: [%*.*s] \n", readlen, readlen, buf);
+			printf("requested file name: [%s] \n", buf);
 			ssize_t written, w;
 			/*
 			 * write the message to the client, being sure to

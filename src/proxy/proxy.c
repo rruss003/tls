@@ -12,10 +12,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <tls.h>
-#include "../hash.h"
+#include "../lib/hash.h"
+#include "../lib/bloomfilter.h"
+
+#define CACHEPATH "../src/cache/"
 
 struct proxy proxylist;
+uint32_t hashtable[ARRAYSIZE];
+char bfpath[256];
+
 
 // add a line to the proxylist file, since using a file is the simplest way to inform other proxies and client about current proxies in running 
 int writelisttofile(){
@@ -65,6 +72,7 @@ void int_handler(int sig){
 	remove("../src/proxylist.txt");
 	// overwirte by rename temporary file
 	rename("../src/temp.txt", "../src/proxylist.txt");
+	remove(bfpath);
 	printf("\nready to quit\n");
 	exit(0);
 }
@@ -183,6 +191,12 @@ int main(int argc,  char *argv[])
 	proxylist.port = port;
 	strcpy(proxylist.name,"proxy");
 	writelisttofile();
+    char cport[64];
+    snprintf(cport, sizeof(cport),"%d",port);
+    strcpy(bfpath, CACHEPATH);
+    strcat(bfpath, cport);
+	bloomfilter_init(hashtable);
+	writearraytofile(hashtable,bfpath);
 
 	for(;;) {
 		/*
@@ -194,8 +208,9 @@ int main(int argc,  char *argv[])
 		clientlen = sizeof(&client);
 		printf("ready to accept\n");
 		clientsd = accept(sd, (struct sockaddr *)&client, &clientlen);
-		if (clientsd == -1)
+		if (clientsd == -1){
 			err(1, "accept failed");
+		}
 		printf("successfully connected\n");
 		if(tls_accept_socket(proxy_ctx,&cctx,clientsd) != 0){
 			err(1, "tls_accept_socket failed: %s",tls_error(proxy_ctx));
@@ -205,7 +220,8 @@ int main(int argc,  char *argv[])
 		     err(1, "fork failed");
 
 		if(pid == 0) {
-
+			
+			readarrayfromfile(hashtable,bfpath);
 			//waiting for message from client
 			ssize_t readlen;
 			if((readlen = tls_read(cctx, buf, sizeof(buf))) < 0){
@@ -213,9 +229,30 @@ int main(int argc,  char *argv[])
 			}
 			printf("requested file name: [%s] \n", buf);
 
+			char request[256];
+			strcpy(request, buf);
 			//bloom filter use here
-
-
+			int queryresult = bloomfilter_query(hashtable,request,strlen(request));
+			if(queryresult == 0){
+				char* path = malloc(256);
+				strcpy(path,"../");
+				strcat(path,request);
+				FILE *fp = NULL;
+				if((fp=fopen(path,"r")) == NULL){
+					printf("false positive!\n");
+					queryresult = -1;
+				}else{
+					//read the file and transmit to the client
+				}
+			}
+			if(queryresult == -1){
+				printf("ready to request from server\n");
+				//request the file from the server
+				bloomfilter_insert(hashtable, request, strlen(request));
+				writearraytofile(hashtable, bfpath);
+				printf("\n");
+			}
+			
 
 			ssize_t written, w;
 			/*

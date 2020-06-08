@@ -31,7 +31,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <tls.h>
-#include "../hash.h"
+#include "../lib/hash.h"
 
 
 
@@ -153,10 +153,10 @@ int main(int argc, char *argv[])
 	printf("successfully setup tls_connection to the server\n");
 
 	//send file name to server
-	if((writelen = tls_write(ctx,buf, strlen(buf))) < 0){
+	if((writelen = tls_write(ctx, buf, strlen(buf))) < 0){
 		err(1,"tls_write: %s", tls_error(ctx));
 	}
-	//waiting for the reply and files from proxy & server
+	// //waiting for the reply and files from proxy & server
 	for(;;){
 		
 	}
