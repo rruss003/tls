@@ -13,35 +13,13 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
-/* server.c  - the "classic" example of a socket server */
-
-/*
- * compile with gcc -o server server.c -ltls -lssl -lcrypto
- * or if you are on a crappy version of linux without strlcpy
- * thanks to the bozos who do glibc, do
- * gcc -c strlcpy.c
- * gcc -o server server.c strlcpy.o
- *
- */
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/wait.h>
-#include <netinet/in.h>
-
 #include <err.h>
-#include <errno.h>
-#include <limits.h>
-#include <signal.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <tls.h>
 #include "../rw.h"
 
-static void usage()
+void usage()
 {
 	extern char * __progname;
 	fprintf(stderr, "usage: %s portnumber\n", __progname);
@@ -51,8 +29,7 @@ static void usage()
 
 void action(struct tls* tls_cctx)
 {
-	#define wl(a) writeloop((char*)&a, tls_cctx, sizeof(a))
-	printf("action called\n");
+	#define wl(a) writeloop((char*)&(a), tls_cctx, sizeof(a))
 	char filename[80];
 	readloop(filename, tls_cctx, 80);
 
@@ -64,7 +41,7 @@ void action(struct tls* tls_cctx)
 		errx(1, "Invalid filename");
 	}
 	fseek(f, 0, SEEK_END);
-	size_t filesize = ftell(f);
+	size_t filesize = ftell(f) + 800;
 	rewind(f);
 	char* buffer = malloc(filesize);
 	
@@ -76,10 +53,11 @@ void action(struct tls* tls_cctx)
 	}
 
 	fclose(f);
-	printf("server fs: %ld\n", filesize);
+	printf("Server: returning filesize: %lu\n", filesize);
 	// printf("BUFFER: %s\n", buffer);
 	status = 0;
 	wl(status);
+	printf("Server: returning file contents:\n%s\n", buffer);
 	wl(filesize);
 	writeloop(buffer, tls_cctx, filesize);
 	
@@ -88,31 +66,8 @@ void action(struct tls* tls_cctx)
 
 int main(int argc,  char *argv[])
 {
-	char *ep;
-	u_short port;
-	u_long p;
-
-	/*
-	 * first, figure out what port we will listen on - it should
-	 * be our first parameter.
-	 */
 	if (argc != 2)
 		usage();
-		errno = 0;
-        p = strtoul(argv[1], &ep, 10);
-        if (*argv[1] == '\0' || *ep != '\0') {
-		/* parameter wasn't a number, or was empty */
-		fprintf(stderr, "%s - not a number\n", argv[1]);
-		usage();
-	}
-        if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX)) {
-		/* It's a number, but it either can't fit in an unsigned
-		 * long, or is too big for an unsigned short
-		 */
-		fprintf(stderr, "%s - value out of range\n", argv[1]);
-		usage();
-	}
-	/* now safe to do this */
-	port = p;
-	server_main(port, &action, "Server");
+
+	server_main(get_port(argv[1], &usage), &action, "Server");
 }

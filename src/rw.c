@@ -13,10 +13,12 @@ void readloop(char* buffer, struct tls* tls_ctx, ssize_t bufsize)
 		else
 			rc += r;
 	}
+	// printf("read %c bufsize %lu\n", buffer, rc);
 }
 
 void writeloop(char* buffer, struct tls* tls_cctx, ssize_t bufsize)
 {
+	// printf("write %c bufsize %lu\n", buffer, bufsize);
     ssize_t w = 0;
 	ssize_t written = 0;
     while (written < bufsize) {
@@ -31,7 +33,8 @@ void writeloop(char* buffer, struct tls* tls_cctx, ssize_t bufsize)
     }
 }
 
-void client_main(unsigned short port, const char* filename, void action(const char*, struct tls*))
+void client_main(u_short port, const char* filename, void action(const char*, struct tls*, struct info* data)) { client_maind(port, filename, action, 0); }
+void client_maind(u_short port, const char* filename, void action(const char*, struct tls*, struct info* data), struct info* data)
 {
 	const char* ip_address = "127.0.0.1";
 	int sd, i;
@@ -83,7 +86,8 @@ void client_main(unsigned short port, const char* filename, void action(const ch
 			errx(1, "tls handshake failed (%s)",
 			    tls_error(tls_ctx));
 	} while (i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
-	action(filename, tls_ctx);
+
+	action(filename, tls_ctx, data);
 	close(sd);
 }
 
@@ -92,7 +96,7 @@ static void kidhandler(int signum) {
 	waitpid(WAIT_ANY, NULL, WNOHANG);
 }
 
-void server_main(unsigned short port, void action(struct tls*), const char* name)
+void server_main(u_short port, void action(struct tls*), const char* name)
 {
 	struct sockaddr_in sockname, client;
 	struct sigaction sa;
@@ -156,7 +160,7 @@ void server_main(unsigned short port, void action(struct tls*), const char* name
         if (sigaction(SIGCHLD, &sa, NULL) == -1)
                 err(1, "sigaction failed");
 
-	printf("%s up and listening for connections on port %u\n", name, port);
+	printf("%s: listening for connections on port %u\n", name, port);
 	/*
 	 * finally - the main loop.  accept connections and deal with 'em
 	 */
@@ -206,4 +210,29 @@ void server_loop(struct tls *tls_ctx, struct tls *tls_cctx, int sd, void action(
 		}
 		close(clientsd);
 	}
+}
+
+u_short get_port(char* portstr, void usage())
+{
+	char *ep;
+	u_long p;
+	/*
+	 * first, figure out what port we will listen on - it should
+	 * be our first parameter.
+	 */
+	errno = 0;
+	p = strtoul(portstr, &ep, 10);
+	if (*portstr == '\0' || *ep != '\0') {
+		/* parameter wasn't a number, or was empty */
+		fprintf(stderr, "%s - not a number\n", portstr);
+		usage();
+	}
+    if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX)) {
+		/* It's a number, but it either can't fit in an unsigned
+		 * long, or is too big for an unsigned short
+		 */
+		fprintf(stderr, "%s - value out of range\n", portstr);
+		usage();
+	}
+	return (u_short) p;
 }

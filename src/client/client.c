@@ -13,69 +13,71 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
-/* client.c  - the "classic" example of a socket client */
 #include <err.h>
-#include <errno.h>
-#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <tls.h>
 #include "../rw.h"
 #include "../hash.h"
 
-static void usage()
+void usage()
 {
 	extern char * __progname;
 	fprintf(stderr, "usage: %s -port proxyportnumber filename\n", __progname);
 	exit(1);
 }
 
-void action(const char* fname, struct tls* tls_ctx)
+void action(const char* fname, struct tls* tls_ctx, struct info* data)
 {
-	#define rl(a) readloop((char*)&a, tls_ctx, sizeof(a))
+	#define rl(a) readloop((char*)&(a), tls_ctx, sizeof(a))
 	char filename[80];
 	strncpy(filename, fname, 80);
 	writeloop(filename, tls_ctx, 80);
 	
+	/*
 	char status = -1;
-	rl(status);
-	if(status != 0)
-		errx(1, "client: Invalid filename");
+	// rl(status);
+	fprintf(stderr, "client status = %d\n", status);
+	sprintf(filename, "%d", status);
+	#define BIG = 100
+	size_t filesize = status;
+	// if(status != 69)
+	// 	errx(1, filename);
 
-	size_t filesize = 0;
-	rl(filesize);
-	printf("%ld\n", filesize);
+	// size_t filesize = 0;
+	// rl(filesize);
+	// printf("Client: %s filesize: 0x%7x\n", fname, filesize);
 
-	char *buffer = malloc(filesize);
-	readloop(buffer, tls_ctx, filesize);
+	// char *buffer = malloc(filesize);
+	char buffer[BIG];
+	readloop(buffer, tls_ctx, BIG);
 	buffer[filesize] = '\0';
-	printf("%s\n", buffer);
+	printf("Client: %s contents:\n%s\n", fname, buffer);
+	free(buffer);
+	*/
+	int status = -1;
+	size_t filesize;
+	// printf("BEFORE READS\n");
+	rl(status);
+	if (status != 0)
+		errx(1, "Proxy returned error - Invalid filename");
+	rl(filesize);
+	printf("Client: %s filesize: %lu\n", fname, filesize);
+	char* buffer = malloc(filesize);
+	readloop(buffer, tls_ctx, filesize);
+	printf("Client: %s contents:\n%s\n", fname, buffer);
 	free(buffer);
 }
 
 int main(int argc, char *argv[])
 {
-	char *ep;
-	u_long p;
-	int sd, i;
-
 	if (argc != 4)
 		usage();
+	if(strcmp(argv[1], "-port") != 0)
+		usage();
 
-	p = strtoul(argv[2], &ep, 10);
-	if (*argv[2] == '\0' || *ep != '\0') {
-		/* parameter wasn't a number, or was empty */
-		fprintf(stderr, "%s - not a number\n", argv[2]);
-		usage();
-	}
-	if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX)) {
-		/* It's a number, but it either can't fit in an unsigned
-		 * long, or is too big for an unsigned short
-		 */
-		fprintf(stderr, "%s - value out of range\n", argv[2]);
-		usage();
-	}
-	client_main(hash(argv[3], argv[2]), argv[3], &action);
+	u_short port = rendezvous_hash(argv[3]);
+	printf("Client: requesting %s on port %u\n", argv[3], port);
+	client_main(port, argv[3], &action);
 	return(0);
 }
