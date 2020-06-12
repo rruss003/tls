@@ -16,8 +16,9 @@
 #include <tls.h>
 #include "../lib/hash.h"
 #include "../lib/bloomfilter.h"
+#include "../lib/rw.h"
 
-#define CACHEPATH "../src/cache/"
+#define CACHEPATH "../src/proxy/"
 
 struct proxy proxylist;
 uint32_t hashtable[ARRAYSIZE];
@@ -73,7 +74,7 @@ void int_handler(int sig){
 	// overwirte by rename temporary file
 	rename("../src/temp.txt", "../src/proxylist.txt");
 	remove(bfpath);
-	printf("\nready to quit\n");
+	printf("\nProxy: ready to quit\n");
 	exit(0);
 }
 
@@ -98,7 +99,7 @@ int main(int argc,  char *argv[])
 	 * be our first parameter.
 	 */
 
-	if (argc != 3)
+	if (argc != 4)
 		usage();
 		if(strcmp(argv[1],"-port")){
 			usage();
@@ -109,46 +110,53 @@ int main(int argc,  char *argv[])
 		/* parameter wasn't a number, or was empty */
 		fprintf(stderr, "%s - not a number\n", argv[1]);
 		usage();
-	}
+		}
         if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX)) {
 		/* It's a number, but it either can't fit in an unsigned
 		 * long, or is too big for an unsigned short
 		 */
 		fprintf(stderr, "%s - value out of range\n", argv[1]);
 		usage();
-	}
+		}
+		char server[256];
+		char servername[256];
+		char *result = NULL;
+		char serverport[64];
+		strncpy(server,argv[3]+1,strlen(argv[3])-1);
+		if(argv[3][0]!='-'){
+			usage();
+		}
+		result = strtok(server,":");
+		strncpy(servername,result,strlen(result));
+		result = strtok(NULL,":");
+		strncpy(serverport,result,strlen(result));
+
+
 	/* now safe to do this */
 	port = p;
 	// intall INT signal handler
 	signal(SIGINT,int_handler);
 	// initialize libtls
-	if(tls_init()!=0){
+	if(tls_init()!=0)
 		err(1,"tls_init:");
-	}
 	// configure libTLS
-	if((cfg = tls_config_new()) == NULL){
+	if((cfg = tls_config_new()) == NULL)
 		err(1,"tls_config_new:");
-	}
 	//set root certificate
-	if(tls_config_set_ca_file(cfg,"../certificates/root.pem") != 0){
+	if(tls_config_set_ca_file(cfg,"../certificates/root.pem") != 0)
 		err(1,"tls_config_set_ca_file failed:");
-	}
 	//set proxy certificates
-	if(tls_config_set_cert_file(cfg,"../certificates/server.crt") != 0){
+	if(tls_config_set_cert_file(cfg,"../certificates/server.crt") != 0)
 		err(1,"tls_config_set_cert_file failed:");
-	}
 	//set proxy private keys
-	if(tls_config_set_key_file(cfg,"../certificates/server.key") != 0){
+	if(tls_config_set_key_file(cfg,"../certificates/server.key") != 0)
 		err(1,"tls_configure_set_key_file failed:");
-	}
 	//initialize proxy context
-	if((proxy_ctx = tls_server()) == NULL){
+	if((proxy_ctx = tls_server()) == NULL)
 		err(1, "tls_server:");
-	}
 	//apply config to context
-	if(tls_configure(proxy_ctx,cfg) != 0){
+	if(tls_configure(proxy_ctx,cfg) != 0)
 		err(1, "tls_configure: %s", tls_error(proxy_ctx));
-	}
 	//setup the socket
 	printf("setting up socket!\n");
 	memset(&sockname, 0, sizeof(sockname));
@@ -156,9 +164,8 @@ int main(int argc,  char *argv[])
 	sockname.sin_port = htons(port);
 	sockname.sin_addr.s_addr = htonl(INADDR_ANY);
 	sd=socket(AF_INET,SOCK_STREAM,0);
-	if (sd == -1){
+	if (sd == -1)
 		err(1, "socket failed");
-	}
 	if (bind(sd, (struct sockaddr *) &sockname, sizeof(sockname)) == -1)
 		err(1, "bind failed");
 	/*
@@ -168,37 +175,33 @@ int main(int argc,  char *argv[])
 	 */
 	if (listen(sd,3) == -1)
 		err(1, "listen failed");
-	/*
-	 * first, let's make sure we can have children without leaving
-	 * zombies around when they die - we can do this by catching
-	 * SIGCHLD.
-	 */
 	sa.sa_handler = kidhandler;
         sigemptyset(&sa.sa_mask);
-	/*
-	 * we want to allow system calls like accept to be restarted if they
-	 * get interrupted by a SIGCHLD
-	 */
-        sa.sa_flags = SA_RESTART;
-        if (sigaction(SIGCHLD, &sa, NULL) == -1)
-                err(1, "sigaction failed");
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, NULL) == -1)
+            err(1, "sigaction failed");
 
 	/*
 	 * finally - the main loop.  accept connections and deal with 'em
 	 */
-	printf("proxy up and listening for connections on port %u\n", port);
+	printf("Proxy: setup and listening for connections on port %u\n", port);
+
+	//add an entry to the list
 	strcpy(proxylist.addr,"127.0.0.1");
 	proxylist.port = port;
 	strcpy(proxylist.name,"proxy");
 	writelisttofile();
+	//covert lsitening port to string
     char cport[64];
     snprintf(cport, sizeof(cport),"%d",port);
+	//get the tmp file (store hash table) path
     strcpy(bfpath, CACHEPATH);
     strcat(bfpath, cport);
+	// initialize bloom_filter
 	bloomfilter_init(hashtable);
 	writearraytofile(hashtable,bfpath);
 
-	for(;;) {
+	for(;;){
 		/*
 		 * We fork child to deal with each connection, this way more
 		 * than one client can connect to us and get served at any one
@@ -206,61 +209,72 @@ int main(int argc,  char *argv[])
 		 */
 		int clientsd;
 		clientlen = sizeof(&client);
-		printf("ready to accept\n");
+		printf("Proxy: ready to accept socket!\n");
 		clientsd = accept(sd, (struct sockaddr *)&client, &clientlen);
-		if (clientsd == -1){
+		if (clientsd == -1)
 			err(1, "accept failed");
-		}
-		printf("successfully connected\n");
-		if(tls_accept_socket(proxy_ctx,&cctx,clientsd) != 0){
+		printf("Proxy: successfully connected with a client\n");
+		if(tls_accept_socket(proxy_ctx,&cctx,clientsd) != 0)
 			err(1, "tls_accept_socket failed: %s",tls_error(proxy_ctx));
-		}
 		pid = fork();
 		if (pid == -1)
 		     err(1, "fork failed");
 
-		if(pid == 0) {
-			
+		if(pid == 0){
+			// read current bloom filter hash map
 			readarrayfromfile(hashtable,bfpath);
 			//waiting for message from client
 			ssize_t readlen;
-			if((readlen = tls_read(cctx, buf, sizeof(buf))) < 0){
+			if((readlen = tls_read(cctx, buf, sizeof(buf))) < 0)
 				err(1, "tls_read:%s", tls_error(proxy_ctx));
-			}
-			printf("requested file name: [%s] \n", buf);
+			printf("Prxoy: client requested file name: [%s] \n", buf);
 
 			char request[256];
-			strcpy(request, buf);
-			//bloom filter use here
+			strncpy(request, buf, strlen(buf));
+			//use bloom filter here
 			int queryresult = bloomfilter_query(hashtable,request,strlen(request));
+			char tmp_path[256];
+			strcpy(tmp_path,"../src/proxy/");
+			strncat(tmp_path, request, strlen(request));
 			if(queryresult == 0){
-				char* path = malloc(256);
-				strcpy(path,"../");
-				strcat(path,request);
+				char fpath[256];
+				strcpy(fpath,"../");
+				strcat(fpath,request);
 				FILE *fp = NULL;
-				if((fp=fopen(path,"r")) == NULL){
-					printf("false positive!\n");
+				if((fp=fopen(fpath,"r")) == NULL){
+					printf("Proxy: bloom filter return false positive!\n");
 					queryresult = -1;
-				}else{
-					//read the file and transmit to the client
 				}
 			}
 			if(queryresult == -1){
-				printf("ready to request from server\n");
+				printf("Proxy: request file: [%s] from server\n", request);
 				//request the file from the server
-				bloomfilter_insert(hashtable, request, strlen(request));
-				writearraytofile(hashtable, bfpath);
-				printf("\n");
+				// fork a new child to connect to the server
+				int s_pid = fork();
+				if(s_pid == 0){
+					printf("Proxy: server name: %s, server port: %s\n", servername,serverport);
+					if((proxy_ctx = tls_client()) == NULL)
+						err(1,"tls_client");
+					if(tls_configure(proxy_ctx,cfg) != 0)
+						err(1,"tls_configure: %s", tls_error(proxy_ctx));
+					if(tls_connect(proxy_ctx,servername,serverport)!=0)
+						err(1, "tls_connect: %s", tls_error(proxy_ctx));
+					printf("Proxy: connected to the server!\n");
+					if((tls_write(proxy_ctx, request, strlen(request))) < 0)
+						err(1,"tls_write: %s", tls_error(proxy_ctx));
+					readfile(proxy_ctx, tmp_path);
+					if(tls_close(proxy_ctx)!=0)
+					bloomfilter_insert(hashtable, request, strlen(request));
+					writearraytofile(hashtable, bfpath);
+					printf("\n");
+					printf("Proxy: received file [%s] from server and ready to send to client\n", request);
+					exit(0);
+				}
 			}
-			
-
-			ssize_t written, w;
-			/*
-			 * write the message to the client, being sure to
-			 * handle a short write, or being interrupted by
-			 * a signal before we could write anything.
-			 */
-			
+			//send the file to the client
+			waitpid(-1, 0, 0);
+			sendfile(cctx, tmp_path);
+			printf("Proxy: send file [%s] to client\n", request);
 			close(clientsd);
 			exit(0);
 		}

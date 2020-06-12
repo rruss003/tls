@@ -32,6 +32,7 @@
 #include <unistd.h>
 #include <tls.h>
 #include "../lib/hash.h"
+#include "../lib/rw.h"
 
 
 
@@ -47,17 +48,14 @@ int main(int argc, char *argv[])
 	struct tls_config *cfg = NULL;
 	struct tls *ctx = NULL;
 	struct sockaddr_in server_sa;
-	char buffer[80], *ep;
-	size_t maxread;
-	ssize_t r, rc;
+	char *ep;
 	u_short port;
 	u_long p;
 	int sd;
 	char *filename;
 	int filename_len;
 	unsigned char buf[BUFSIZ];
-	uint8_t *mem;
-	size_t mem_len;
+	char path[256];
 	ssize_t writelen;
 
 	if (argc != 4)
@@ -82,15 +80,13 @@ int main(int argc, char *argv[])
 	filename = argv[3];
 	filename_len = strlen(argv[3]);
 	strncpy(buf,filename,filename_len);
-
+	strcpy(path,"../src/client/");
+	strncat(path,filename,filename_len);
 	//use HRW hash to determine the right proxy server address
-
 	int chosen_port;
 	chosen_port = rendezvous_hashing(buf,strlen(buf));
-	printf("port chosen is %d\n",chosen_port);
-
+	printf("Client: chosen port is %d\n",chosen_port);
 	port = chosen_port;
-
 	/*
 	 * first set up "server_sa" to be the location of the server
 	 */
@@ -103,68 +99,54 @@ int main(int argc, char *argv[])
 		usage();
 	}
 
-	//initialize libtls
-	if(tls_init() != 0){
+	// tls_setup_client(ctx, cfg);
+ 	//initialize libtls
+	if(tls_init() != 0)
 		err(1,"tls_init:");
-	}
-
 	//configure libtls
-	if((cfg = tls_config_new()) == NULL){
+	if((cfg = tls_config_new()) == NULL)
 		err(1,"tls_config_new:");
-	}
-
 	//set root certificate
-	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0){
+	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0)
 		err(1,"tls_config_set_ca_file:");
-	}
-
 	//set client Certificates
-	if(tls_config_set_cert_file(cfg, "../certificates/client.crt") != 0){
+	if(tls_config_set_cert_file(cfg, "../certificates/client.crt") != 0)
 		err(1,"tls_config_set_cert_file:");
-	}
-
 	//set client certificates keys
-	if(tls_config_set_key_file(cfg, "../certificates/client.key") != 0){
+	if(tls_config_set_key_file(cfg, "../certificates/client.key") != 0)
 		err(1,"tls_config_set_key_file:");
-	}
-
 	//initialize client context
-	if((ctx = tls_client()) == NULL){
+	if((ctx = tls_client()) == NULL)
 		err(1,"tls_client");
-	}
-
 	//apply config to context
-	if(tls_configure(ctx,cfg) != 0){
+	if(tls_configure(ctx,cfg) != 0)
 		err(1,"tls_configure: %s", tls_error(ctx));
-	}
+
 	/* ok now get a socket. we don't care where... */
 	if ((sd=socket(AF_INET,SOCK_STREAM,0)) == -1)
 		err(1, "socket failed");
-
 	//connect the socket to the server described in "server_sa"
 	if (connect(sd, (struct sockaddr *)&server_sa, sizeof(server_sa)) == -1)
 		err(1, "connect failed");
 	
-	// // connect to the socket to the server
-	if(tls_connect_socket(ctx,sd,"localhost") != 0){
-		err(1,"tls_connect: %s", tls_error(ctx));
-	}
 
-	printf("successfully setup tls_connection to the server\n");
+	// // connect to the socket to the server
+	if(tls_connect_socket(ctx,sd,"localhost") != 0)
+		err(1,"tls_connect: %s", tls_error(ctx));
+
+	printf("Client: successfully setup tls connection to the server!\n");
 
 	//send file name to server
-	if((writelen = tls_write(ctx, buf, strlen(buf))) < 0){
+	if((writelen = tls_write(ctx, buf, strlen(buf))) < 0)
 		err(1,"tls_write: %s", tls_error(ctx));
-	}
-	// //waiting for the reply and files from proxy & server
-	for(;;){
-		
-	}
+	//waiting for the reply and files from proxy & server
+	readfile(ctx, path);
+	printf("Client: received file [%s] from server\n", filename);
 	//close the connection
-	if(tls_close(ctx) != 0){
-		err(1, "tls_close: %s", tls_error(ctx));
-	}
-	printf("connection closed\n");
+	tls_close(ctx);
+	// if(tls_close(ctx) != 0)
+		// err(1, "tls_close: %s", tls_error(ctx));
+	printf("Client: connection closed\n");
 	tls_free(ctx);
 	tls_config_free(cfg);
 	return(0);

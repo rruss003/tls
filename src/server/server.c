@@ -39,6 +39,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <tls.h>
+#include "../lib/rw.h"
 
 static void usage()
 {
@@ -85,53 +86,38 @@ int main(int argc,  char *argv[])
 		/* parameter wasn't a number, or was empty */
 		fprintf(stderr, "%s - not a number\n", argv[1]);
 		usage();
-	}
+		}
         if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX)) {
 		/* It's a number, but it either can't fit in an unsigned
 		 * long, or is too big for an unsigned short
 		 */
 		fprintf(stderr, "%s - value out of range\n", argv[1]);
 		usage();
-	}
+		}
 	/* now safe to do this */
 	port = p;
 	// initialize libtls
-	if(tls_init()!=0){
+	if(tls_init()!=0)
 		err(1,"tls_init:");
-	}
 	// configure libTLS
-	if((cfg = tls_config_new()) == NULL){
+	if((cfg = tls_config_new()) == NULL)
 		err(1,"tls_config_new:");
-	}
 	//set root certificate
-	if(tls_config_set_ca_file(cfg,"../certificates/root.pem") != 0){
+	if(tls_config_set_ca_file(cfg,"../certificates/root.pem") != 0)
 		err(1,"tls_config_set_ca_file failed:");
-	}
-
 	//set server certificates
-	if(tls_config_set_cert_file(cfg,"../certificates/server.crt") != 0){
+	if(tls_config_set_cert_file(cfg,"../certificates/server.crt") != 0)
 		err(1,"tls_config_set_cert_file failed:");
-	}
-	
 	//set server private keys
-	if(tls_config_set_key_file(cfg,"../certificates/server.key") != 0){
+	if(tls_config_set_key_file(cfg,"../certificates/server.key") != 0)
 		err(1,"tls_configure_set_key_file failed:");
-	}
-	
 	//initialize server context
-	if((ctx = tls_server()) == NULL){
+	if((ctx = tls_server()) == NULL)
 		err(1, "tls_server:");
-	}
-
 	//apply config to context
-	if(tls_configure(ctx,cfg) != 0){
+	if(tls_configure(ctx,cfg) != 0)
 		err(1, "tls_configure: %s", tls_error(ctx));
-	}
 
-	/* the message we send the client */
-	strlcpy(buffer,
-	    "What is the air speed velocity of a coconut laden swallow?\n",
-	    sizeof(buffer));
 	//setup the socket
 	printf("setting up socket!\n");
 	memset(&sockname, 0, sizeof(sockname));
@@ -139,9 +125,8 @@ int main(int argc,  char *argv[])
 	sockname.sin_port = htons(port);
 	sockname.sin_addr.s_addr = htonl(INADDR_ANY);
 	sd=socket(AF_INET,SOCK_STREAM,0);
-	if (sd == -1){
+	if (sd == -1)
 		err(1, "socket failed");
-	}
 	if (bind(sd, (struct sockaddr *) &sockname, sizeof(sockname)) == -1)
 		err(1, "bind failed");
 	/*
@@ -169,7 +154,7 @@ int main(int argc,  char *argv[])
 	/*
 	 * finally - the main loop.  accept connections and deal with 'em
 	 */
-	printf("Server up and listening for connections on port %u\n", port);
+	printf("Server: setup and listening for connections on port %u\n", port);
 	for(;;) {
 		/*
 		 * We fork child to deal with each connection, this way more
@@ -178,33 +163,31 @@ int main(int argc,  char *argv[])
 		 */
 		int clientsd;
 		clientlen = sizeof(&client);
-		printf("ready to accept\n");
+		printf("Server: ready to accept\n");
 		clientsd = accept(sd, (struct sockaddr *)&client, &clientlen);
 		if (clientsd == -1)
 			err(1, "accept failed");
-		printf("successfully connected\n");
-		if(tls_accept_socket(ctx,&cctx,clientsd) != 0){
+		printf("Server: successfully connected\n");
+		if(tls_accept_socket(ctx,&cctx,clientsd) != 0)
 			err(1, "tls_accept_socket failed: %s",tls_error(ctx));
-		}
 		pid = fork();
 		if (pid == -1)
 		     err(1, "fork failed");
-
-		if(pid == 0) {
-
-			//waiting for message from client
+		if(pid == 0){
+			//waiting for message from proxy
 			ssize_t readlen;
 			if((readlen = tls_read(cctx, buf, sizeof(buf))) < 0){
 				err(1, "tls_read:%s", tls_error(ctx));
 			}
-			printf("requested file name: [%s] \n", buf);
-			ssize_t written, w;
-			/*
-			 * write the message to the client, being sure to
-			 * handle a short write, or being interrupted by
-			 * a signal before we could write anything.
-			 */
-			
+			printf("Server: Requested file name: [%s] \n", buf);
+			char file_path[256];
+			strcpy(file_path,"../src/server/");
+			strncat(file_path, buf, strlen(buf));
+			int ret;
+			ret = sendfile(cctx, file_path);
+			if(ret < 0){
+			printf("Server: please terminate the client\n");
+			}
 			close(clientsd);
 			exit(0);
 		}
