@@ -10,6 +10,9 @@
 #define HASHNUM 4
 #define ARRAYSIZE 24
 
+
+void readarrayfromfile(uint32_t hashtable[ARRAYSIZE], const char *path);
+void writearraytofile(uint32_t hashtable[ARRAYSIZE], const char *path);
 int bloomfilter_init(uint32_t hashtable[ARRAYSIZE]);
 int bloomfilter_insert(uint32_t hashtable[ARRAYSIZE], const char *filename, const int length);
 int bloomfilter_query(uint32_t hashtable[ARRAYSIZE], const char *filename, const int length);

@@ -12,7 +12,7 @@ set(SERVER_SRC	src/server/server.c src/rw.c)
 add_executable(server ${SERVER_SRC})
 target_link_libraries(server tls)
 
-set(PROXY_SRC	src/proxy/proxy.c src/rw.c)
+set(PROXY_SRC	src/proxy/proxy.c src/rw.c src/bloomfilter.c)
 add_executable(proxy ${PROXY_SRC})
 target_link_libraries(proxy tls)
 

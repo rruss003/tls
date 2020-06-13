@@ -33,28 +33,7 @@ void action(const char* fname, struct tls* tls_ctx, struct info* data)
 	char filename[80];
 	strncpy(filename, fname, 80);
 	writeloop(filename, tls_ctx, 80);
-	
-	/*
-	char status = -1;
-	// rl(status);
-	fprintf(stderr, "client status = %d\n", status);
-	sprintf(filename, "%d", status);
-	#define BIG = 100
-	size_t filesize = status;
-	// if(status != 69)
-	// 	errx(1, filename);
 
-	// size_t filesize = 0;
-	// rl(filesize);
-	// printf("Client: %s filesize: 0x%7x\n", fname, filesize);
-
-	// char *buffer = malloc(filesize);
-	char buffer[BIG];
-	readloop(buffer, tls_ctx, BIG);
-	buffer[filesize] = '\0';
-	printf("Client: %s contents:\n%s\n", fname, buffer);
-	free(buffer);
-	*/
 	int status = -1;
 	size_t filesize;
 	// printf("BEFORE READS\n");

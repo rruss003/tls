@@ -23,45 +23,6 @@ long long polyhash(const char* str, const int len)
     return hash_value;
 }
 
-static inline uint32_t mmhash3_32_scramble(uint32_t k)
-{
-    k *= 0xcc9e2d51;
-    k =(k << 15) | (k >> 17);
-    k *=0x1b873593;
-    return k;
-}
-
-// a 32 bits murmur hash function, for the bloom filter, code mianly from wiki
-// use seed to generate different hash values. Good for bloom filter, since it need many different hash functions
-uint32_t mmhash3_32(const char *str, int length, int seed)
-{
-    uint32_t hash = seed;
-    uint32_t k;
-    // read in 8bits per time
-    for(int i = length >> 2; i; i--) {
-        memcpy(&k, str, sizeof(uint32_t));
-        str += sizeof(uint32_t);
-        hash ^= mmhash3_32_scramble(k);
-        hash = (hash << 13) | (hash >> 19);
-        hash = hash*5 + 0xe6546b64;
-    }
-    //read the rest
-    k=0;
-    for(int i = length&3; i; i--) {
-        k <<= 8;
-        k |= str[i-1];
-    }
-    hash ^= mmhash3_32_scramble(k);
-    //finalize
-    hash ^= length;
-    hash ^= hash >> 16;
-    hash *= 0x85ebca6b;
-    hash ^= hash >> 13;
-    hash *= 0xc2b2ae35;
-    hash ^= hash >> 16;
-    return hash;
-}
-
 void er()
 {
     exit(1);
