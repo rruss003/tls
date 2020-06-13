@@ -1,3 +1,7 @@
+## NOTE
+------------------------
+Further information is present in doc/README.txt
+
 ## TLS Cache
 ------------------------
 
