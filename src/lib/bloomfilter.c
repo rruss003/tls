@@ -43,7 +43,7 @@ int bloomfilter_insert(uint32_t hashtable[ARRAYSIZE], const char *filename, cons
             hashtable[bitindex] = 1;
         }
     }
-    printf("Inserted file:[%s] into bloom filter\n", filename);
+    printf("Bloom Filter: Inserted file [%s] into bloom filter\n", filename);
     return 0;
 }
 
@@ -62,10 +62,10 @@ int bloomfilter_query(uint32_t hashtable[ARRAYSIZE], const char *filename, const
         if(hashtable[bitindex] != 0){
             continue;
         }else{
-            printf("Requested file [%s] not present!\n", filename);
+            printf("Bloom Filter: Requested file [%s] not present!\n", filename);
             return -1;
         }
     }
-    printf("Requested file [%s] probably present!\n", filename);
+    printf("Bloom Filter: Requested file [%s] probably present!\n", filename);
     return 0;
 }

@@ -73,7 +73,7 @@ void int_handler(int sig){
 	remove("../src/proxylist.txt");
 	// overwirte by rename temporary file
 	rename("../src/temp.txt", "../src/proxylist.txt");
-	remove(bfpath);
+	// remove(bfpath);
 	printf("\nProxy: ready to quit\n");
 	exit(0);
 }
